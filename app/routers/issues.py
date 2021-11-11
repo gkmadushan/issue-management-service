@@ -24,7 +24,7 @@ page_size = os.getenv('PAGE_SIZE')
 
 router = APIRouter(
     prefix="/v1/issues",
-    tags=["SoftwareInventoryAPIs"],
+    tags=["IssueManagementAPIs"],
     # dependencies=[Depends(get_token_header)],
     responses={404: {"description": "Not found"}},
 )
@@ -63,7 +63,7 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
 
 
 @router.get("")
-def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None, title: Optional[str] = None, resource: Optional[str] = None, issue_status: Optional[str] = None, issue_id: Optional[str] = None, script_available: Optional[bool] = None, false_positive: Optional[str] = None, detected_at_from: Optional[str] = None, detected_at_to: Optional[str] = None, resolved_at_from: Optional[str] = None, resolved_at_to: Optional[str] = None):
+def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None, title: Optional[str] = None, resource: Optional[str] = None, issue_status: Optional[str] = None, issue_id: Optional[str] = None, script_available: Optional[str] = None, false_positive: Optional[str] = None, detected_at_from: Optional[str] = None, detected_at_to: Optional[str] = None, resolved_at_from: Optional[str] = None, resolved_at_to: Optional[str] = None):
     filters = []
 
     if(title):
