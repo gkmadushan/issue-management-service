@@ -261,7 +261,7 @@ def create(details: CreateIssueAction, commons: dict = Depends(common_params), d
 @router.get("/{id}")
 def get_by_id(id: str, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
     issue = db.query(Issue).get(id.strip())
-    if item == None:
+    if issue == None:
         raise HTTPException(status_code=404, detail="Issue not found")
     response = {
         "data": issue
