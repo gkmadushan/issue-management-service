@@ -34,20 +34,20 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
     #generate token
     id = details.id or uuid.uuid4().hex
 
-    issue_status = db.query(IssueStatus).get(details.issue_status.strip())
+    issue_status = db.query(IssueStatus).filter(IssueStatus.code=='OPEN').one()
         
     issue = Issue(
         id=id,
         title=details.title,
-        resource=details.resource,
+        resource_id=details.reference,
         issue_status=issue_status,
         description=details.description,
         score=details.score,
         issue_id=details.issue_id,
         remediation_script=details.remediation_script,
-        result_object=details.result_object,
-        detected_at=datetime.now(),
-        last_updated_at=datetime.now()
+        detected_at=details.issue_date,
+        last_updated_at=datetime.now(),
+        reference=details.reference
     )    
 
     #commiting data to db

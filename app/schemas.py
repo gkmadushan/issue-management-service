@@ -5,14 +5,13 @@ from typing import List, Optional
 class CreateIssue(BaseModel):
     id: Optional[str]
     resource: str
-    issue_status: str
     title: Optional[str]
     description: Optional[str]
-    score: float
+    score: str
     issue_id: str
     remediation_script: str
-    result_object: str
-
+    issue_date: str
+    reference: str
 
 class PatchIssue(BaseModel):
     title: str
