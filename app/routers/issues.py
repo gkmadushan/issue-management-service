@@ -39,7 +39,7 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
     issue = Issue(
         id=id,
         title=details.title,
-        resource_id=details.reference,
+        resource_id=details.resource,
         issue_status=issue_status,
         description=details.description,
         score=details.score,
@@ -78,10 +78,10 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
     if(issue_id):
         filters.append(Issue.issue_id == issue_id)
 
-    if(script_available == True):
+    if(script_available == '1'):
         filters.append(Issue.remediation_script != None)
     
-    if(script_available == False):
+    if(script_available == '0'):
         filters.append(Issue.remediation_script == None)
 
     if(detected_at_from):
@@ -96,11 +96,11 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
     if(resolved_at_to):
         filters.append(Issue.resolved_at <= resolved_at_to)
 
-    if(false_positive == True):
-        filters.append(Issue.false_positive == True)
+    if(false_positive == '1'):
+        filters.append(Issue.false_positive == 1)
     
-    if(false_positive == False):
-        filters.append(Issue.false_positive == False)
+    if(false_positive == '0'):
+        filters.append(Issue.false_positive == 0)
 
 
     query = db.query(
@@ -111,10 +111,11 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         Issue.issue_id,
         Issue.detected_at,
         Issue.resolved_at,
-        Issue.false_positive
+        Issue.false_positive,
+        IssueStatus.name.label('issue_status')
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).order_by(Issue.detected_at.asc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(and_(*filters)).join(Issue.issue_status).order_by(Issue.detected_at.asc()), page_number = int(page), page_size = int(limit))
 
     response = {
         "data": query.all(),
@@ -144,7 +145,7 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         ActionType.name
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).order_by(ActionType.name.asc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(and_(*filters)).order_by(ActionType.order.asc()), page_number = int(page), page_size = int(limit))
 
     response = {
         "data": query.all(),
@@ -157,6 +158,16 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
     }
 
     return response
+
+@router.get("/action-types/{id}")
+def get_by_id(id: str, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
+    action_type = db.query(ActionType).get(id.strip())
+    if action_type == None:
+        raise HTTPException(status_code=404, detail="Action type not found")
+    response = {
+        "data": action_type
+    }
+    return response 
 
 @router.get("/issue-status")
 def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None):
@@ -199,15 +210,15 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         filters.append(IssueAction.action_type_id == action_type)
 
     query = db.query(
-        over(func.row_number(), order_by=IssueAction.created_at).label('index'),
         IssueAction.id,
         IssueAction.notes,
         IssueAction.issue_status,
         IssueAction.action_type,
-        IssueAction.created_at
+        IssueAction.created_at,
+        ActionType.name
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).order_by(IssueAction.created_at.asc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(and_(*filters)).join(IssueAction.action_type).join(IssueAction.issue_status).order_by(IssueAction.created_at.desc()), page_number = int(page), page_size = int(limit))
 
     response = {
         "data": query.all(),
@@ -230,7 +241,7 @@ def create(details: CreateIssueAction, commons: dict = Depends(common_params), d
     issue_status = issue.issue_status
     action_type = db.query(ActionType).get(details.action_type.strip())    
         
-    issue_action = Issue(
+    issue_action = IssueAction(
         id=id,
         issue_status=issue_status,
         action_type=action_type,
@@ -240,11 +251,11 @@ def create(details: CreateIssueAction, commons: dict = Depends(common_params), d
     )    
 
     if action_type.mode == 'CHECKOUT':
-        issue.locked = True
-    else:
-        issue.locked = False
+        issue.locked = int(True)
+    if action_type.mode == 'CHECKIN':
+        issue.locked = int(False)
 
-
+    
     #commiting data to db
     try:
         db.add(issue_action)
@@ -273,11 +284,18 @@ def patch(id:str, details: PatchIssue, commons: dict = Depends(common_params), d
     #Set user entity
     issue = db.query(Issue).get(id)
 
-    issue.title=details.title
-    issue.description=details.description
-    issue.score=details.score
-    issue.remediation_script=details.remediation_script
-    issue.false_positive=details.false_positive
+    if details.title != None:
+        issue.title=details.title
+    if details.description != None:
+        issue.description=details.description
+    if details.score != None:
+        issue.score=details.score
+    if details.remediation_script != None:
+        issue.remediation_script=details.remediation_script
+    if details.false_positive != None:
+       issue.false_positive=int(details.false_positive)
+    if details.locked != None:
+        issue.locked = int(details.locked)
 
     #commiting data to db
     try:

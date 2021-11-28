@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql.expression import null
+from sqlalchemy.sql.sqltypes import Integer
 
 Base = declarative_base()
 metadata = Base.metadata
@@ -15,6 +16,7 @@ class ActionType(Base):
     code = Column(String(250), nullable=False, unique=True)
     name = Column(String(250), nullable=False)
     mode = Column(String(10), nullable=False)
+    order = Column(Integer, nullable=False, server_default=text("0"))
 
 
 class IssueStatus(Base):

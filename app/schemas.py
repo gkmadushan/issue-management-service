@@ -14,13 +14,15 @@ class CreateIssue(BaseModel):
     reference: str
 
 class PatchIssue(BaseModel):
-    title: str
-    description: str
-    score: float
-    remediation_script: str
-    false_positive: bool
+    title: Optional[str]
+    description: Optional[str]
+    score: Optional[float]
+    remediation_script: Optional[str]
+    false_positive: Optional[bool]
+    locked: Optional[bool]
 
 class CreateIssueAction(BaseModel):
+    id: Optional[str]
     issue: str
     action_type: str
     notes: str
