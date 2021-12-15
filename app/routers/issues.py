@@ -1,3 +1,4 @@
+from matplotlib import colors
 from sqlalchemy.sql.sqltypes import DateTime
 from sqlalchemy.exc import IntegrityError
 from starlette.responses import Response
@@ -11,13 +12,17 @@ from dependencies import get_token_header
 import uuid
 from datetime import datetime
 from exceptions import username_already_exists
-from sqlalchemy import over
+from sqlalchemy import over, text
 from sqlalchemy import engine_from_config, and_, func, literal_column, case
 from sqlalchemy_filters import apply_pagination
 import time
 import os
 import uuid
 from sqlalchemy.dialects import postgresql
+import matplotlib.pyplot as plt
+import io
+import base64
+
 
 page_size = os.getenv('PAGE_SIZE')
 
@@ -28,6 +33,59 @@ router = APIRouter(
     # dependencies=[Depends(get_token_header)],
     responses={404: {"description": "Not found"}},
 )
+
+@router.get("/graphs")
+def new_issues(commons: dict = Depends(common_params), db: Session = Depends(get_db)):
+    output = []
+    #Issue summary graph
+    result = db.execute(text(f"""
+        select count(*), DATE(detected_at) from issue group by DATE(detected_at) order by DATE(detected_at) desc limit 30
+        """))
+    rows = []
+    for row in result:
+        rows.append(row)
+    
+
+    y, x = zip(*rows)
+    fig, ax = plt.subplots(figsize = (6,4)) 
+    f1 = io.BytesIO()
+    
+    plt.plot(x,y, linewidth=2.0, color='b')
+    plt.ylabel('Number of issues ')
+    plt.title('Issue Summary')
+    
+
+    fig.savefig(f1, format = "svg")
+
+    output.append(base64.b64encode(f1.getvalue()))
+    
+    #Open issues by severity
+    fig, ax = plt.subplots(figsize = (6,4)) 
+
+    f2 = io.BytesIO()
+
+    result = db.execute(text(f"""
+        select count(*), score from issue where resolved_at is null group by score
+        """))
+    rows = []
+    for row in result:
+        rows.append(row)
+    y, x = zip(*rows)
+    bar = plt.bar(x,y, hatch=["\/\/\/","//", "", "////"], edgecolor='black',color=['red', 'orange', 'lightblue','gray'])
+    plt.ylabel('Number of issues ')
+    plt.xlabel('')
+    plt.title('Open Issues by Severity')
+
+    plt.yticks(fontsize=8)
+    plt.xticks(fontsize=8)
+    
+    fig.savefig(f2, format = "svg")
+    
+
+    output.append(base64.b64encode(f2.getvalue()))
+
+    return output
+
 
 @router.post("")
 def create(details: CreateIssue, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
@@ -45,7 +103,7 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
         score=details.score,
         issue_id=details.issue_id,
         remediation_script=details.remediation_script,
-        detected_at=details.issue_date,
+        detected_at=datetime.now(),
         last_updated_at=datetime.now(),
         reference=details.reference
     )    
@@ -307,3 +365,5 @@ def patch(id:str, details: PatchIssue, commons: dict = Depends(common_params), d
     return {
         "success": True
     }
+
+
