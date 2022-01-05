@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Numeric, SmallInteger, String, text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, SmallInteger, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -29,21 +29,25 @@ class IssueStatus(Base):
 
 class Issue(Base):
     __tablename__ = 'issue'
+    __table_args__ = (
+        UniqueConstraint('issue_id', 'resource_id', 'unique_id'),
+    )
 
     id = Column(UUID, primary_key=True)
     resource_id = Column(UUID, nullable=False)
     issue_status_id = Column(ForeignKey('issue_status.id'), nullable=False)
     title = Column(String(250))
     description = Column(String(2000))
-    score = Column(String(250))
+    score = Column(String)
     issue_id = Column(String(6000))
     remediation_script = Column(String(6000))
     detected_at = Column(DateTime)
     resolved_at = Column(DateTime)
     last_updated_at = Column(DateTime)
     false_positive = Column(SmallInteger, nullable=False, server_default=text("0"))
-    locked = Column(SmallInteger, nullable=False, server_default=text("0"))
-    reference = Column(UUID, nullable=True)
+    locked = Column(SmallInteger, nullable=False, server_default=text("'0'::smallint"))
+    reference = Column(UUID)
+    unique_id = Column(String)
 
     issue_status = relationship('IssueStatus')
 

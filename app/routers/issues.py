@@ -10,7 +10,7 @@ from typing import Optional
 from models import Issue, IssueAction, IssueStatus, ActionType
 from dependencies import get_token_header
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from exceptions import username_already_exists
 from sqlalchemy import over, text
 from sqlalchemy import engine_from_config, and_, func, literal_column, case
@@ -34,66 +34,79 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 @router.get("/graphs")
 def new_issues(commons: dict = Depends(common_params), db: Session = Depends(get_db)):
     output = []
-    #Issue summary graph
+    days = "('"+datetime.now().strftime('%Y-%m-%d')+"')"
+    for i in range(6):
+        days += ",('"+(datetime.now() - timedelta(days=i+1)).strftime('%Y-%m-%d')+"')"
+
+    # Issue summary graph
     result = db.execute(text(f"""
-        select count(*), DATE(detected_at) from issue group by DATE(detected_at) order by DATE(detected_at) desc limit 30
+        SELECT SUM(CASE WHEN i.false_positive = 0 THEN 1 ELSE 0 END) as count, DATE(p.date)
+        FROM (SELECT * FROM (VALUES {days}) AS t (date)) p
+        LEFT JOIN issue i
+        ON DATE(i.detected_at) = DATE(p.date)
+        group by DATE(p.date)   
         """))
     rows = []
+    db.close()
     for row in result:
         rows.append(row)
-    
 
-    y, x = zip(*rows)
-    fig, ax = plt.subplots(figsize = (6,4)) 
-    f1 = io.BytesIO()
-    
-    plt.plot(x,y, linewidth=2.0, color='b')
-    plt.ylabel('Number of issues ')
-    plt.title('Issue Summary')
-    
+    if rows:
+        y, x = zip(*rows)
+        fig, ax = plt.subplots(figsize=(6, 4))
+        f1 = io.BytesIO()
 
-    fig.savefig(f1, format = "svg")
+        plt.plot(x, y, linewidth=2.0, color='b')
+        plt.xticks(rotation=10, fontsize="small")
+        plt.xlabel('')
+        plt.ylabel('Number of issues ')
+        plt.title('Issue Summary')
 
-    output.append(base64.b64encode(f1.getvalue()))
-    
-    #Open issues by severity
-    fig, ax = plt.subplots(figsize = (6,4)) 
+        fig.savefig(f1, format="svg")
 
-    f2 = io.BytesIO()
+        output.append(base64.b64encode(f1.getvalue()))
 
-    result = db.execute(text(f"""
-        select count(*), score from issue where resolved_at is null group by score
-        """))
-    rows = []
-    for row in result:
-        rows.append(row)
-    y, x = zip(*rows)
-    bar = plt.bar(x,y, hatch=["\/\/\/","//", "", "////"], edgecolor='black',color=['red', 'orange', 'lightblue','gray'])
-    plt.ylabel('Number of issues ')
-    plt.xlabel('')
-    plt.title('Open Issues by Severity')
+        # Open issues by severity
+        fig, ax = plt.subplots(figsize=(6, 4))
 
-    plt.yticks(fontsize=8)
-    plt.xticks(fontsize=8)
-    
-    fig.savefig(f2, format = "svg")
-    
+        f2 = io.BytesIO()
 
-    output.append(base64.b64encode(f2.getvalue()))
+        result = db.execute(text(f"""
+            select count(*), (CASE WHEN score='High' THEN 'High' WHEN score='Critical' THEN 'High' WHEN score='Medium' THEN 'Medium' ELSE 'Low' END) as score  from issue where resolved_at is null group by (CASE WHEN score='High' THEN 'High' WHEN score='Critical' THEN 'High' WHEN score='Medium' THEN 'Medium' ELSE 'Low' END)
+            """))
+        rows = []
+        for row in result:
+            rows.append(row)
+        y, x = zip(*rows)
+        bar = plt.bar(x, y, hatch=["\/\/\/", "//", ""], edgecolor='black',
+                      color=['red', 'orange', 'lightblue'])
+        plt.ylabel('Number of issues ')
+        plt.xlabel('')
+        plt.title('Open Issues by Severity')
 
-    return output
+        plt.yticks(fontsize=8)
+        plt.xticks(fontsize=8)
+
+        fig.savefig(f2, format="svg")
+
+        output.append(base64.b64encode(f2.getvalue()))
+
+        return output
+    else:
+        return False
 
 
 @router.post("")
 def create(details: CreateIssue, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
-    #generate token
+    # generate token
     id = details.id or uuid.uuid4().hex
 
-    issue_status = db.query(IssueStatus).filter(IssueStatus.code=='OPEN').one()
-        
+    issue_status = db.query(IssueStatus).filter(IssueStatus.code == 'OPEN').one()
+
     issue = Issue(
         id=id,
         title=details.title,
@@ -105,10 +118,11 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
         remediation_script=details.remediation_script,
         detected_at=datetime.now(),
         last_updated_at=datetime.now(),
-        reference=details.reference
-    )    
+        reference=details.reference,
+        unique='-'
+    )
 
-    #commiting data to db
+    # commiting data to db
     try:
         db.add(issue)
         db.commit()
@@ -138,7 +152,7 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
 
     if(script_available == '1'):
         filters.append(Issue.remediation_script != None)
-    
+
     if(script_available == '0'):
         filters.append(Issue.remediation_script == None)
 
@@ -150,16 +164,15 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
 
     if(resolved_at_from):
         filters.append(Issue.resolved_at >= resolved_at_from)
-    
+
     if(resolved_at_to):
         filters.append(Issue.resolved_at <= resolved_at_to)
 
     if(false_positive == '1'):
         filters.append(Issue.false_positive == 1)
-    
+
     if(false_positive == '0'):
         filters.append(Issue.false_positive == 0)
-
 
     query = db.query(
         over(func.row_number(), order_by=Issue.detected_at).label('index'),
@@ -173,11 +186,12 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         IssueStatus.name.label('issue_status')
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).join(Issue.issue_status).order_by(Issue.detected_at.asc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(
+        and_(*filters)).join(Issue.issue_status).order_by(Issue.detected_at.asc()), page_number=int(page), page_size=int(limit))
 
     response = {
         "data": query.all(),
-        "meta":{
+        "meta": {
             "total_records": pagination.total_results,
             "limit": pagination.page_size,
             "num_pages": pagination.num_pages,
@@ -188,13 +202,9 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
     return response
 
 
-
-
-
 @router.get("/action-types")
 def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None):
-    filters = []    
-
+    filters = []
 
     query = db.query(
         over(func.row_number(), order_by=ActionType.name).label('index'),
@@ -203,11 +213,12 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         ActionType.name
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).order_by(ActionType.order.asc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(
+        and_(*filters)).order_by(ActionType.order.asc()), page_number=int(page), page_size=int(limit))
 
     response = {
         "data": query.all(),
-        "meta":{
+        "meta": {
             "total_records": pagination.total_results,
             "limit": pagination.page_size,
             "num_pages": pagination.num_pages,
@@ -216,6 +227,7 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
     }
 
     return response
+
 
 @router.get("/action-types/{id}")
 def get_by_id(id: str, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
@@ -225,12 +237,12 @@ def get_by_id(id: str, commons: dict = Depends(common_params), db: Session = Dep
     response = {
         "data": action_type
     }
-    return response 
+    return response
+
 
 @router.get("/issue-status")
 def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None):
-    filters = []    
-
+    filters = []
 
     query = db.query(
         over(func.row_number(), order_by=IssueStatus.name).label('index'),
@@ -239,11 +251,12 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         IssueStatus.name
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).order_by(IssueStatus.name.asc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(
+        and_(*filters)).order_by(IssueStatus.name.asc()), page_number=int(page), page_size=int(limit))
 
     response = {
         "data": query.all(),
-        "meta":{
+        "meta": {
             "total_records": pagination.total_results,
             "limit": pagination.page_size,
             "num_pages": pagination.num_pages,
@@ -255,12 +268,12 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
 
 
 @router.get("/issue-actions")
-def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None, issue_id : Optional[str] = None, issue_status : Optional[str] = None, action_type : Optional[str] = None ):
-    filters = []   
+def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None, issue_id: Optional[str] = None, issue_status: Optional[str] = None, action_type: Optional[str] = None):
+    filters = []
 
     if(issue_id):
         filters.append(IssueAction.issue_id == issue_id)
-    
+
     if(issue_status):
         filters.append(IssueAction.issue_status_id == issue_status)
 
@@ -276,11 +289,12 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
         ActionType.name
     )
 
-    query, pagination = apply_pagination(query.where(and_(*filters)).join(IssueAction.action_type).join(IssueAction.issue_status).order_by(IssueAction.created_at.desc()), page_number = int(page), page_size = int(limit))
+    query, pagination = apply_pagination(query.where(and_(*filters)).join(IssueAction.action_type).join(
+        IssueAction.issue_status).order_by(IssueAction.created_at.desc()), page_number=int(page), page_size=int(limit))
 
     response = {
         "data": query.all(),
-        "meta":{
+        "meta": {
             "total_records": pagination.total_results,
             "limit": pagination.page_size,
             "num_pages": pagination.num_pages,
@@ -290,15 +304,16 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
 
     return response
 
+
 @router.post("/issue-actions")
 def create(details: CreateIssueAction, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
-    #generate token
+    # generate token
     id = details.id or uuid.uuid4().hex
 
     issue = db.query(Issue).get(details.issue.strip())
     issue_status = issue.issue_status
-    action_type = db.query(ActionType).get(details.action_type.strip())    
-        
+    action_type = db.query(ActionType).get(details.action_type.strip())
+
     issue_action = IssueAction(
         id=id,
         issue_status=issue_status,
@@ -306,15 +321,17 @@ def create(details: CreateIssueAction, commons: dict = Depends(common_params), d
         issue=issue,
         notes=details.notes,
         created_at=datetime.now(),
-    )    
+    )
 
     if action_type.mode == 'CHECKOUT':
         issue.locked = int(True)
     if action_type.mode == 'CHECKIN':
         issue.locked = int(False)
 
-    
-    #commiting data to db
+    if action_type.code == 'FIXED':
+        issue.unique_id = uuid.uuid4().hex
+
+    # commiting data to db
     try:
         db.add(issue_action)
         db.add(issue)
@@ -337,25 +354,26 @@ def get_by_id(id: str, commons: dict = Depends(common_params), db: Session = Dep
     }
     return response
 
+
 @router.patch("/{id}")
-def patch(id:str, details: PatchIssue, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
-    #Set user entity
+def patch(id: str, details: PatchIssue, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
+    # Set user entity
     issue = db.query(Issue).get(id)
 
     if details.title != None:
-        issue.title=details.title
+        issue.title = details.title
     if details.description != None:
-        issue.description=details.description
+        issue.description = details.description
     if details.score != None:
-        issue.score=details.score
+        issue.score = details.score
     if details.remediation_script != None:
-        issue.remediation_script=details.remediation_script
+        issue.remediation_script = details.remediation_script
     if details.false_positive != None:
-       issue.false_positive=int(details.false_positive)
+        issue.false_positive = int(details.false_positive)
     if details.locked != None:
         issue.locked = int(details.locked)
 
-    #commiting data to db
+    # commiting data to db
     try:
         db.add(issue)
         db.commit()
@@ -367,3 +385,17 @@ def patch(id:str, details: PatchIssue, commons: dict = Depends(common_params), d
     }
 
 
+@router.patch("/notify-overdue")
+def notify(db: Session = Depends(get_db)):
+    issue = db.query(Issue).get(id)
+
+
+# @router.delete("/{reference}")
+# def get_by_id(reference: str, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
+#     issue = db.query(Issue).get(id.strip())
+#     if issue == None:
+#         raise HTTPException(status_code=404, detail="Issue not found")
+#     response = {
+#         "data": issue
+#     }
+#     return response
