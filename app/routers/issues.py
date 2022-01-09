@@ -22,6 +22,7 @@ from sqlalchemy.dialects import postgresql
 import matplotlib.pyplot as plt
 import io
 import base64
+import sys
 
 
 page_size = os.getenv('PAGE_SIZE')
@@ -102,16 +103,17 @@ def new_issues(commons: dict = Depends(common_params), db: Session = Depends(get
 
 @router.post("")
 def create(details: CreateIssue, commons: dict = Depends(common_params), db: Session = Depends(get_db)):
+
     # generate token
     id = details.id or uuid.uuid4().hex
 
-    issue_status = db.query(IssueStatus).filter(IssueStatus.code == 'OPEN').one()
+    issue_open_status = db.query(IssueStatus).filter(IssueStatus.code == 'OPEN').one()
 
     issue = Issue(
         id=id,
         title=details.title,
         resource_id=details.resource,
-        issue_status=issue_status,
+        issue_status=issue_open_status,
         description=details.description,
         score=details.score,
         issue_id=details.issue_id,
@@ -119,7 +121,7 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
         detected_at=datetime.now(),
         last_updated_at=datetime.now(),
         reference=details.reference,
-        unique='-'
+        unique_id='-'
     )
 
     # commiting data to db
@@ -128,7 +130,27 @@ def create(details: CreateIssue, commons: dict = Depends(common_params), db: Ses
         db.commit()
     except IntegrityError as err:
         db.rollback()
-        raise HTTPException(status_code=422, detail="Unable to create new inventory item")
+        # if issue already exists, update the status
+        try:
+            issue = db.query(Issue).filter(Issue.resource_id == details.resource).filter(
+                Issue.issue_id == details.issue_id).filter(Issue.false_positive == 0).one()
+            issue.issue_status = issue_open_status
+            action_type = db.query(ActionType).filter(ActionType.code == 'INFO').one()
+
+            issue_action = IssueAction(
+                id=uuid.uuid4().hex,
+                issue_status=issue_open_status,
+                action_type=action_type,
+                issue=issue,
+                notes='SYSTEM : REOPENING ISSUE',
+                created_at=datetime.now(),
+            )
+
+            db.add(issue)
+            db.add(issue_action)
+            db.commit()
+        except:
+            raise HTTPException(status_code=422, detail="Unable to create new issue"+str(sys.exc_info()))
     return {
         "success": True
     }
@@ -329,7 +351,13 @@ def create(details: CreateIssueAction, commons: dict = Depends(common_params), d
         issue.locked = int(False)
 
     if action_type.code == 'FIXED':
-        issue.unique_id = uuid.uuid4().hex
+        issue_open_status = db.query(IssueStatus).filter(IssueStatus.code == 'CLOSED').one()
+        issue.issue_status = issue_open_status
+
+    if action_type.code == 'FALSE':
+        issue_open_status = db.query(IssueStatus).filter(IssueStatus.code == 'CLOSED').one()
+        issue.issue_status = issue_open_status
+        issue.false_positive = 1
 
     # commiting data to db
     try:
