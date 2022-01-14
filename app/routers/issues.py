@@ -161,7 +161,9 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
     filters = []
 
     if(title):
-        filters.append(Issue.title.ilike(title+'%'))
+        filters.append(Issue.title.ilike('%'+title+'%'))
+    else:
+        filters.append(Issue.title.ilike('%'))
 
     if(resource):
         filters.append(Issue.resource_id == resource)
@@ -227,6 +229,7 @@ def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, com
 @router.get("/action-types")
 def get_by_filter(page: Optional[str] = 1, limit: Optional[int] = page_size, commons: dict = Depends(common_params), db: Session = Depends(get_db), id: Optional[str] = None):
     filters = []
+    filters.append(ActionType.name.ilike('%'))
 
     query = db.query(
         over(func.row_number(), order_by=ActionType.name).label('index'),

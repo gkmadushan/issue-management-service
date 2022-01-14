@@ -1,0 +1,6 @@
+projectKey=SecOps-IssueManagementService
+serverUrl=http://localhost:8180
+serverVersion=9.2.4.50792
+dashboardUrl=http://localhost:8180/dashboard?id=SecOps-IssueManagementService
+ceTaskId=AX5FGTUZnpx-DzHdZPId
+ceTaskUrl=http://localhost:8180/api/ce/task?id=AX5FGTUZnpx-DzHdZPId
